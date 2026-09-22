@@ -1,8 +1,5 @@
 name: NovaMart Performance Pipeline
 
-permissions:
-  contents: read
-
 on:
   push:
     branches: [ main ]
@@ -17,55 +14,24 @@ jobs:
       - name: 1. Checkout code
         uses: actions/checkout@v4
 
-      - name: 2. Start Docker Compose services
-        run: |
-          docker compose up -d --build
+      - name: 2. Start Docker Compose services (wait until healthy)
+        run: docker compose up -d --build --wait --wait-timeout 120
 
-      - name: 3. Wait for MySQL & RabbitMQ to be ready
-        run: |
-          echo "Waiting for MySQL..."
-          for i in {1..30}; do
-            if docker exec nova-mysql mysql -uroot -proot -e "SELECT 1" > /dev/null 2>&1; then
-              echo "MySQL is ready!"
-              break
-            fi
-            echo "Waiting for MySQL... ($i/30)"
-            sleep 2
-          done
+      # 第 3 步：等待 MySQL/RabbitMQ 的循环逻辑已删除，--wait 已覆盖
 
-          echo "Waiting for RabbitMQ..."
-          for i in {1..30}; do
-            if docker exec nova-rabbitmq rabbitmq-diagnostics -q ping > /dev/null 2>&1; then
-              echo "RabbitMQ is ready!"
-              break
-            fi
-            echo "Waiting for RabbitMQ... ($i/30)"
-            sleep 2
-          done
-
-      - name: 4. Initialize MySQL data (seed)
+      - name: 3. Run k6 Performance Tests (Performance Gate)
         run: |
-          # 确保 seed.sql 文件存在于 mysql/master/ 目录下
-          docker exec -i nova-mysql mysql -uroot -proot < mysql/master/seed.sql
-
-      - name: 5. Run k6 Performance Tests (Performance Gate)
-        run: |
-          # 读接口压测（Redis 缓存）
           docker run --rm --network host --user $(id -u):$(id -g) -v $PWD:/scripts -w /scripts grafana/k6 run k6/read-test.js
-          
-          # 同步下单压测（MySQL 写入）
           docker run --rm --network host --user $(id -u):$(id -g) -v $PWD:/scripts -w /scripts grafana/k6 run k6/sync-order-test.js
-          
-          # 异步下单压测（RabbitMQ 削峰）
           docker run --rm --network host --user $(id -u):$(id -g) -v $PWD:/scripts -w /scripts grafana/k6 run k6/async-order-test.js
 
-      - name: 6. Upload HTML Reports
+      - name: 4. Upload HTML Reports
         if: always()
         uses: actions/upload-artifact@v4
         with:
           name: k6-html-reports
           path: k6/reports/
 
-      - name: 7. Tear down Docker Compose
+      - name: 5. Tear down Docker Compose
         if: always()
         run: docker compose down -v
