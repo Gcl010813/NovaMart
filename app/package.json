@@ -1,0 +1,16 @@
+{
+    "name": "novamart-app",
+    "version": "1.0.0",
+    "description": "NovaMart Core Transaction Engine",
+    "main": "server.js",
+    "scripts": {
+        "start": "node server.js"
+    },
+    "dependencies": {
+        "express": "^4.18.2",
+        "mysql2": "^3.6.0",
+        "redis": "^4.6.10",
+        "amqplib": "^0.10.3",
+        "prom-client": "^15.1.0"
+    }
+}

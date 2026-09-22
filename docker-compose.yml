@@ -1,0 +1,134 @@
+services:
+  mysql:
+    image: mysql:8.0
+    container_name: nova-mysql
+    environment:
+      MYSQL_ROOT_PASSWORD: root
+      MYSQL_DATABASE: novamart
+    ports:
+      - "3307:3306"
+    volumes:
+      - ./mysql/master/init.sql:/docker-entrypoint-initdb.d/init.sql
+      - mysql-data:/var/lib/mysql
+    healthcheck:
+      test: [ "CMD", "mysqladmin", "ping", "-h", "localhost", "-uroot", "-proot" ]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+    networks:
+      - nova-net
+
+  redis:
+    image: redis:alpine
+    container_name: nova-redis
+    ports:
+      - "6379:6379"
+    networks:
+      - nova-net
+
+  rabbitmq:
+    image: rabbitmq:3-management
+    container_name: nova-rabbitmq
+    ports:
+      - "5672:5672"
+      - "15672:15672"
+    environment:
+      RABBITMQ_DEFAULT_USER: guest
+      RABBITMQ_DEFAULT_PASS: guest
+    healthcheck:
+      test: [ "CMD", "rabbitmq-diagnostics", "-q", "ping" ]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+    networks:
+      - nova-net
+
+  app:
+    build: ./app
+    container_name: nova-node
+    environment:
+      DB_HOST: mysql
+      REDIS_HOST: redis
+      RABBITMQ_HOST: rabbitmq
+      DB_USER: root
+      DB_PASSWORD: root
+      DB_NAME: novamart
+    depends_on:
+      mysql:
+        condition: service_healthy
+      redis:
+        condition: service_started
+      rabbitmq:
+        condition: service_healthy
+    ports:
+      - "3000:3000"
+    networks:
+      - nova-net
+
+  nginx:
+    image: nginx:alpine
+    container_name: nova-nginx
+    ports:
+      - "8080:80"
+    volumes:
+      - ./nginx/nginx.conf:/etc/nginx/nginx.conf
+    depends_on:
+      - app
+    networks:
+      - nova-net
+
+  node-exporter:
+    image: prom/node-exporter
+    container_name: nova-node-exporter
+    volumes:
+      - /proc:/host/proc:ro
+      - /sys:/host/sys:ro
+      - /:/rootfs:ro
+    command:
+      - '--path.procfs=/host/proc'
+      - '--path.sysfs=/host/sys'
+    ports:
+      - "9100:9100"
+    networks:
+      - nova-net
+
+  cadvisor:
+    image: gcr.io/cadvisor/cadvisor:v0.47.0
+    container_name: nova-cadvisor
+    privileged: true
+    volumes:
+      - /:/rootfs:ro
+      - /var/run:/var/run:ro
+      - /sys:/sys:ro
+      - /var/lib/docker/:/var/lib/docker:ro
+      - /dev/kmsg:/dev/kmsg
+    ports:
+      - "8081:8080" # 避免和 Nginx 的 8080 冲突
+    networks:
+      - nova-net
+
+  prometheus:
+    image: prom/prometheus
+    container_name: nova-prometheus
+    volumes:
+      - ./monitoring/prometheus.yml:/etc/prometheus/prometheus.yml
+    ports:
+      - "9090:9090"
+    networks:
+      - nova-net
+
+  grafana:
+    image: grafana/grafana
+    container_name: nova-grafana
+    ports:
+      - "3001:3000" # 注意这里，宿主机用 3001 访问
+    environment:
+      - GF_SECURITY_ADMIN_PASSWORD=admin
+    networks:
+      - nova-net
+
+volumes:
+  mysql-data:
+
+networks:
+  nova-net:
